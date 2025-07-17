@@ -21,17 +21,17 @@ Role: Acts as the user-facing assistant responsible for interpreting financial q
 
 Responsibilities:
 
-Query Evaluation: Determines whether a query is simple (e.g., "Show my last 10 transactions") or complex (e.g., "Analyze my spending trends").
+-Query Evaluation: Determines whether a query is simple (e.g., "Show my last 10 transactions") or complex (e.g., "Analyze my spending trends").
 
-Simple Queries: Directly uses the query_db tool to retrieve and respond to basic data requests.
+-Simple Queries: Directly uses the query_db tool to retrieve and respond to basic data requests.
 
-Complex Queries: Coordinates with data_analyst by:
+-Complex Queries: Coordinates with data_analyst by:
 
-Using query_db to understand the data
+-Using query_db to understand the data
 
-Delegating statistical analysis
+-Delegating statistical analysis
 
-Interpreting real statistical results for actionable financial advice
+-Interpreting real statistical results for actionable financial advice
 
 Outputs: Financial insights grounded in actual numbers (e.g., "Your food expenses make up 48% of your total spend").
 
@@ -41,19 +41,17 @@ Role: Performs rigorous data analysis to support complex queries with concrete s
 
 Responsibilities:
 
-Uses analyze_financial_data to compute detailed statistics
+-Uses analyze_financial_data to compute detailed statistics
 
-Provides exact values like:
+-Provides exact values like:
 
-Means, standard deviations, and ranges of transactions
+  -Means, standard deviations, and ranges of transactions
 
-Category and payment method breakdowns
+-Category and payment method breakdowns
 
-Anomaly counts and types (e.g., IQR, multidimensional)
+-Anomaly counts and types (e.g., IQR, multidimensional)
 
-Avoids generic or placeholder statements — only reports real, computed values
-
-Returns findings to the finance_agent for interpretation and user-facing recommendation
+-Returns findings to the finance_agent for interpretation and user-facing recommendation
 
 ## SQL Agent 
 
@@ -64,21 +62,21 @@ To translate user queries into executable SQL statements and return results in a
 
 Key Capabilities:
 
-Understands user intent via natural language
+-Understands user intent via natural language
 
-Uses LangChain’s SQLDatabaseToolkit and create_sql_agent for query execution
+-Uses LangChain’s SQLDatabaseToolkit and create_sql_agent for query execution
 
-Works seamlessly with AutoGen agents (e.g., finance_agent) to retrieve data from a SQLite database
+-Works seamlessly with AutoGen agents (e.g., finance_agent) to retrieve data from a SQLite database
 
-Supports flexible, conversational access to structured financial data (e.g., transactions, balances, categories)
+-Supports flexible, conversational access to structured financial data (e.g., transactions, balances, categories)
 
-Example Queries It Can Handle:
+-Example Queries It Can Handle:
 
-"List all transactions above ₹5000"
+  -"List all transactions above ₹5000"
 
-"Show spending by category in June"
-
-"Get the average amount spent on travel"
+  -"Show spending by category in June"
+  
+  -"Get the average amount spent on travel"
 
 ## Data Analysis- Categorization and Anomaly Detection using SQLAnomalyDetector class
 
@@ -86,38 +84,38 @@ Example Queries It Can Handle:
 The SQLAnomalyDetector class provides a full pipeline for detecting anomalies in financial transaction data loaded from a SQL database.
 
 **🔧 Core Responsibilities**
-Load & Preprocess Data:
+-Load & Preprocess Data:
 
-Connects to a SQLite database and executes SQL queries.
+  -Connects to a SQLite database and executes SQL queries.
+  
+  -Combines separate Date and Time columns into a single DateTime field with robust parsing.
+  
+  -Provides type introspection and handles missing or malformed data gracefully.
 
-Combines separate Date and Time columns into a single DateTime field with robust parsing.
+-Outlier Detection Methods:
 
-Provides type introspection and handles missing or malformed data gracefully.
+  -Z-Score: Identifies extreme values based on standard deviations.
+  
+  -IQR (Interquartile Range): Flags values significantly outside the typical range.
+  
+  -Modified Z-Score: Robust detection using median and MAD (Median Absolute Deviation).
+  
+  -Isolation Forest: Detects multi-dimensional outliers using scikit-learn’s model.
 
-Outlier Detection Methods:
-
-Z-Score: Identifies extreme values based on standard deviations.
-
-IQR (Interquartile Range): Flags values significantly outside the typical range.
-
-Modified Z-Score: Robust detection using median and MAD (Median Absolute Deviation).
-
-Isolation Forest: Detects multi-dimensional outliers using scikit-learn’s model.
-
-🧠 Domain-Specific Anomaly Checks
-Large Cash Withdrawals/Deposits: Detects significant inflow or outflow of funds using IQR.
-
-Unusual Transaction Amounts: Flags spikes or dips in transaction values.
-
-High-Frequency Days: Identifies days with abnormally high numbers of transactions.
-
-Round Number Bias: Highlights transactions with rounded amounts (e.g., ₹1000, ₹5000) that may be suspicious.
-
-Late-Night Activity: Detects transactions occurring between 11 PM and 5 AM.
-
-Rare Categories & Modes: Finds seldom-used transaction categories or payment methods.
-
-Time-Based Patterns: Analyzes hour-of-day transaction distributions
+-🧠 Domain-Specific Anomaly Checks
+  -Large Cash Withdrawals/Deposits: Detects significant inflow or outflow of funds using IQR.
+  
+  -Unusual Transaction Amounts: Flags spikes or dips in transaction values.
+  
+  -High-Frequency Days: Identifies days with abnormally high numbers of transactions.
+  
+  -Round Number Bias: Highlights transactions with rounded amounts (e.g., ₹1000, ₹5000) that may be suspicious.
+  
+  -Late-Night Activity: Detects transactions occurring between 11 PM and 5 AM.
+  
+  -Rare Categories & Modes: Finds seldom-used transaction categories or payment methods.
+  
+  -Time-Based Patterns: Analyzes hour-of-day transaction distributions
 
 ## Future Work
 
