@@ -16,6 +16,7 @@ This project aims to provide insights into user spending patterns, answer user q
 ## Agent Structure
 
 🏦 **finance_agent – Senior Financial Advisor**
+
 Role: Acts as the user-facing assistant responsible for interpreting financial queries and delivering actionable recommendations.
 
 Responsibilities:
@@ -35,6 +36,7 @@ Interpreting real statistical results for actionable financial advice
 Outputs: Financial insights grounded in actual numbers (e.g., "Your food expenses make up 48% of your total spend").
 
 📊 **data_analyst – Statistical Analyst for Financial Data**
+
 Role: Performs rigorous data analysis to support complex queries with concrete statistical findings.
 
 Responsibilities:
