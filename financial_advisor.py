@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+
+pip install -r requirements.txt
+
 import pandas as pd
 import sqlite3
 from google.colab import userdata
