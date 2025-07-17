@@ -1,4 +1,4 @@
-# Autogen Financial_Advisor
+# Autogen Financial Advisor
 Multi-agent Autogen application to analyze historic user data to provide insights on spending patterns.
 This project aims to provide insights into user spending patterns, answer user queries, and to help users better track their financial transactions. 
 
