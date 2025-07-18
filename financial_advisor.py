@@ -4,8 +4,6 @@ pip install -r requirements.txt
 
 import pandas as pd
 import sqlite3
-from google.colab import userdata
-import os
 from langchain_openai import ChatOpenAI
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
@@ -15,7 +13,6 @@ from autogen_agentchat.agents import UserProxyAgent
 from autogen_agentchat.teams import SelectorGroupChat
 
 from autogen_ext.models.openai import OpenAIChatCompletionClient
-from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.ui import Console
 import asyncio
 import numpy as np
