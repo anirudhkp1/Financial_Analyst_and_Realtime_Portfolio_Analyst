@@ -228,6 +228,7 @@ class SQLAnomalyDetector:
         anomalies = {}
 
         # Find amount columns with different possible names
+        
         amount_cols = []
         for col in ['Amount', 'amount', 'AMOUNT', 'Cash Out', 'cash_out', 'Cash In', 'cash_in']:
             if col in self.df.columns:
@@ -270,7 +271,7 @@ class SQLAnomalyDetector:
                 except:
                     continue
 
-        # 4. Frequency anomalies - only if DateTime exists
+        # 4. Frequency anomalies 
         if 'DateTime' in self.df.columns and self.df['DateTime'].notna().sum() > 0:
             try:
                 daily_counts = self.df.groupby(self.df['DateTime'].dt.date).size()
@@ -283,29 +284,56 @@ class SQLAnomalyDetector:
             except Exception as e:
                 print(f"Warning: Could not analyze frequency patterns: {e}")
 
-        # 5. Round number bias
-        for col in amount_cols:
-            if col in self.df.columns:
-                try:
-                    amounts = pd.to_numeric(self.df[col], errors='coerce').dropna()
-                    if len(amounts) > 0:
-                        abs_amounts = amounts.abs()
-                        round_amounts = self.df[abs_amounts % 100 == 0]
-                        if len(round_amounts) > len(self.df) * 0.15:
-                            anomalies['round_number_bias'] = round_amounts
-                        break
-                except:
-                    continue
-
-        # 6. Late night transactions - only if DateTime exists
+        # Weekday vs Weekend analysis - only if DateTime exists
         if 'DateTime' in self.df.columns and self.df['DateTime'].notna().sum() > 0:
             try:
-                late_night_mask = (self.df['DateTime'].dt.hour >= 23) | (self.df['DateTime'].dt.hour <= 5)
-                late_night_transactions = self.df[late_night_mask]
-                if len(late_night_transactions) > 0:
-                    anomalies['late_night_transactions'] = late_night_transactions
+                # Add day of week (0=Monday, 6=Sunday)
+                self.df['day_of_week'] = self.df['DateTime'].dt.dayofweek
+                self.df['is_weekend'] = self.df['day_of_week'].isin([5, 6])  # Saturday=5, Sunday=6
+                
+                # Count transactions by weekday vs weekend
+                weekday_count = (~self.df['is_weekend']).sum()
+                weekend_count = self.df['is_weekend'].sum()
+                
+                # Calculate expected weekend ratio (2/7 ≈ 0.286)
+                expected_weekend_ratio = 2/7
+                actual_weekend_ratio = weekend_count / (weekday_count + weekend_count)
+                
+                # If weekend transactions are significantly higher than expected, flag as anomaly
+                if actual_weekend_ratio > expected_weekend_ratio * 1.5:  # 50% higher than expected
+                    weekend_transactions = self.df[self.df['is_weekend']]
+                    anomalies['excessive_weekend_activity'] = weekend_transactions
+                
+                # Also check for unusual weekend transaction amounts
+                if weekend_count > 0 and weekday_count > 0:
+                    # Find amount columns and compare weekend vs weekday patterns
+                    for col in amount_cols:
+                        if col in self.df.columns:
+                            try:
+                                amounts = pd.to_numeric(self.df[col], errors='coerce')
+                                if amounts.notna().sum() > 0:
+                                    weekend_amounts = amounts[self.df['is_weekend']].dropna()
+                                    weekday_amounts = amounts[~self.df['is_weekend']].dropna()
+                                    
+                                    if len(weekend_amounts) > 0 and len(weekday_amounts) > 0:
+                                        # Compare median amounts
+                                        weekend_median = weekend_amounts.median()
+                                        weekday_median = weekday_amounts.median()
+                                        
+                                        # If weekend median is significantly higher, flag transactions
+                                        if weekend_median > weekday_median * 1.5:
+                                            high_weekend_amounts = self.df[
+                                                self.df['is_weekend'] & 
+                                                (amounts > weekend_amounts.quantile(0.75))
+                                            ]
+                                            if len(high_weekend_amounts) > 0:
+                                                anomalies['high_weekend_amounts'] = high_weekend_amounts
+                                    break
+                            except:
+                                continue
+                                
             except Exception as e:
-                print(f"Warning: Could not analyze time patterns: {e}")
+                print(f"Warning: Could not analyze weekday/weekend patterns: {e}")
 
         return anomalies
 
@@ -438,20 +466,6 @@ class SQLAnomalyDetector:
                     rare_transactions = self.df[self.df['Category'].isin(rare_categories.index)]
                     results['rare_category_transactions'] = rare_transactions
                     print(f"   Rare category transactions: {len(rare_transactions)}")
-
-            # Mode-based anomalies
-            if 'Mode' in self.df.columns:
-                mode_counts = self.df['Mode'].value_counts()
-                print(f"   Payment modes: {len(mode_counts)}")
-                print(f"   Most common: {mode_counts.head(3).to_dict()}")
-
-                # Find rare modes
-                rare_modes = mode_counts[mode_counts <= 2]
-                if len(rare_modes) > 0:
-                    rare_mode_transactions = self.df[self.df['Mode'].isin(rare_modes.index)]
-                    results['rare_mode_transactions'] = rare_mode_transactions
-                    print(f"   Rare mode transactions: {len(rare_mode_transactions)}")
-
         except Exception as e:
             print(f"   Error analyzing patterns: {e}")
 
@@ -482,6 +496,16 @@ class SQLAnomalyDetector:
                     unusual_time_transactions = self.df[self.df['DateTime'].dt.hour.isin(unusual_hours.index)]
                     results['unusual_time_transactions'] = unusual_time_transactions
                     print(f"   Unusual timing transactions: {len(unusual_time_transactions)}")
+                
+                # Weekday vs Weekend analysis
+                if 'is_weekend' in self.df.columns:
+                    weekday_count = (~self.df['is_weekend']).sum()
+                    weekend_count = self.df['is_weekend'].sum()
+                    weekend_ratio = weekend_count / (weekday_count + weekend_count)
+                    print(f"   Weekday transactions: {weekday_count} ({(1-weekend_ratio)*100:.1f}%)")
+                    print(f"   Weekend transactions: {weekend_count} ({weekend_ratio*100:.1f}%)")
+                    print(f"Weekend ratio(w.r.t. week):{weekend_ratio}")
+                    print(f"   Expected weekend ratio: 0.35-0.45")
 
             except Exception as e:
                 print(f"   Error in time analysis: {e}")
@@ -490,13 +514,13 @@ class SQLAnomalyDetector:
 
 def analyze_financial_data(query: str = None) -> str:
     """
-    Analyze financial data using the SQLAnomalyDetector
+    Analyze financial data using the SQLAnomalyDetector with detailed category, month, and mode splits
 
     Args:
         query (str): Optional SQL query to filter data
 
     Returns:
-        str: Formatted analysis results
+        str: Formatted analysis results with detailed breakdowns
     """
     try:
         detector = SQLAnomalyDetector("mydb.db")
@@ -507,50 +531,276 @@ def analyze_financial_data(query: str = None) -> str:
         if df is None or len(df) == 0:
             return "No data found for analysis"
 
-        # Run comprehensive analysis
+        # Filter for positive amounts only (expenses/spending)
+        df_positive = df[df['Amount'] > 0].copy()
+        
+        if len(df_positive) == 0:
+            return "No positive amount transactions found for analysis"
+
+        # Run comprehensive analysis on positive amounts only
         results = detector.comprehensive_analysis()
 
-        # Format results for return
-        analysis_summary = f"""
-📊 COMPREHENSIVE FINANCIAL DATA ANALYSIS
-=========================================
+        # Initialize detailed analysis string to capture all insights
+        detailed_analysis = f"""
+📊 COMPREHENSIVE FINANCIAL DATA ANALYSIS (Positive Amounts Only)
+================================================================
 
 Dataset Overview:
-- Total records: {len(df)}
-- Date range: {df['Date'].min() if 'Date' in df.columns else 'N/A'} to {df['Date'].max() if 'Date' in df.columns else 'N/A'}
-- Columns: {list(df.columns)}
-
-Statistical Analysis:
+- Total records (all): {len(df)}
+- Positive amount records: {len(df_positive)}
+- Date range: {df_positive['Date'].min() if 'Date' in df_positive.columns else 'N/A'} to {df_positive['Date'].max() if 'Date' in df_positive.columns else 'N/A'}
+- Columns: {list(df_positive.columns)}
 """
 
+        # Use df_positive for all subsequent calculations
+        df = df_positive.copy()
+
+        # === CATEGORY ANALYSIS ===
+        if 'Category' in df.columns:
+            detailed_analysis += "\n\n🏷️ CATEGORY BREAKDOWN:\n" + "="*50 + "\n"
+            
+            # category-counts split
+            category_stats = df.groupby('Category').agg({
+                'Amount': ['count', 'sum', 'mean', 'std', 'min', 'max']
+            }).round(2)
+            category_count_df = category_stats['Amount']['count'].reset_index()
+            category_count_df.columns = ['Category', 'Transaction Count']
+
+            # category-amount splits (now all amounts are positive)
+            if 'Amount' in df.columns:
+                # Remove the Money category filter since we're only dealing with positive amounts
+                category_amounts = df.groupby('Category')['Amount'].agg(['sum', 'mean', 'count']).round(2)
+                category_amounts = category_amounts.sort_values('sum', ascending=False)
+                
+                # Capture the insights
+                detailed_analysis += f"\n   Amount spent by category:\n"
+                detailed_analysis += f"   Top 5 categories by total amount:\n"
+                for cat, row in category_amounts.head(5).iterrows():
+                    detailed_analysis += f"     {cat}: Rs.{row['sum']:,.2f} (avg: Rs.{row['mean']:,.2f}, {row['count']} transactions)\n"
+                
+                # Create and display plot
+                plt.figure(figsize=(12, 8))
+                
+                # Since all amounts are positive, we can simplify the plotting
+                bars = plt.bar(range(len(category_amounts)), 
+                              category_amounts['sum'], 
+                              color='green', alpha=0.7)
+                
+                plt.xticks(range(len(category_amounts)), 
+                          category_amounts.index, 
+                          rotation=45, ha='right')
+                plt.title('Total Amount Spent per Category (Positive Amounts Only):', fontsize=16, pad=20)
+                plt.ylabel('Total Amount (Rs.)', fontsize=12)
+                plt.xlabel('Category', fontsize=12)
+                
+                # Add value labels on bars
+                for i, (bar, value) in enumerate(zip(bars, category_amounts['sum'])):
+                    height = bar.get_height()
+                    plt.text(bar.get_x() + bar.get_width()/2., height + (height * 0.01),
+                            f'Rs.{value:,.0f}', ha='center', va='bottom',
+                            fontsize=10, rotation=0)
+                
+                plt.tight_layout()
+                plt.show()
+            
+            # Calculate totals for percentages
+            total_transactions = len(df)
+            total_amount = df['Amount'].sum() if 'Amount' in df.columns else 0
+            
+            detailed_analysis += f"\nTotal Categories: {len(category_stats)}\n"
+            detailed_analysis += f"Total Transactions: {total_transactions}\n"
+            detailed_analysis += f"Total Amount: Rs.{total_amount:,.2f}\n\n"
+            
+            # Update column names for the stats
+            category_stats.columns = ['Count', 'Total_Amount', 'Avg_Amount', 'Std_Amount', 'Min_Amount', 'Max_Amount']
+            
+            detailed_analysis += "📈 Category Statistics:\n"
+            for category, stats in category_stats.iterrows():
+                percentage = (stats['Count'] / total_transactions) * 100
+                amount_percentage = (stats['Total_Amount'] / total_amount) * 100 if total_amount > 0 else 0
+                detailed_analysis += f"\n  {category}:\n"
+                detailed_analysis += f"    • Transactions: {stats['Count']} ({percentage:.1f}% of total)\n"
+                detailed_analysis += f"    • Total Amount: Rs.{stats['Total_Amount']:,.2f} ({amount_percentage:.1f}% of total)\n"
+                detailed_analysis += f"    • Average Amount: Rs.{stats['Avg_Amount']:,.2f}\n"
+                detailed_analysis += f"    • Amount Range: Rs.{stats['Min_Amount']:,.2f} to Rs.{stats['Max_Amount']:,.2f}\n"
+                detailed_analysis += f"    • Std Deviation: Rs.{stats['Std_Amount']:,.2f}\n"
+
+        # === MONTHLY ANALYSIS ===
+        if 'Date' in df.columns:
+            detailed_analysis += "\n\n📅 MONTHLY BREAKDOWN:\n" + "="*50 + "\n"
+            
+            try:
+                # Convert Date to datetime and extract month-year
+                df['Date_parsed'] = pd.to_datetime(df['Date'], format='%d-%b-%y', errors='coerce')
+                df['Month_Year'] = df['Date_parsed'].dt.to_period('M')
+                
+                monthly_stats = df.groupby('Month_Year').agg({
+                    'Amount': ['count', 'sum', 'mean', 'std', 'min', 'max']
+                }).round(2)
+                
+                monthly_stats.columns = ['Count', 'Total_Amount', 'Avg_Amount', 'Std_Amount', 'Min_Amount', 'Max_Amount']
+                monthly_stats = monthly_stats.sort_index()
+                
+                detailed_analysis += f"Date Range: {monthly_stats.index.min()} to {monthly_stats.index.max()}\n"
+                detailed_analysis += f"Total Months: {len(monthly_stats)}\n\n"
+                
+                detailed_analysis += "📊 Monthly Statistics:\n"
+                for month, stats in monthly_stats.iterrows():
+                    detailed_analysis += f"\n  {month}:\n"
+                    detailed_analysis += f"    • Transactions: {stats['Count']}\n"
+                    detailed_analysis += f"    • Total Amount: Rs.{stats['Total_Amount']:,.2f}\n"
+                    detailed_analysis += f"    • Average Amount: Rs.{stats['Avg_Amount']:,.2f}\n"
+                    detailed_analysis += f"    • Amount Range: Rs.{stats['Min_Amount']:,.2f} to Rs.{stats['Max_Amount']:,.2f}\n"
+                    detailed_analysis += f"    • Std Deviation: Rs.{stats['Std_Amount']:,.2f}\n"
+                
+                # Monthly trends
+                detailed_analysis += "\n📈 Monthly Trends:\n"
+                avg_monthly_amount = monthly_stats['Total_Amount'].mean()
+                highest_month = monthly_stats['Total_Amount'].idxmax()
+                lowest_month = monthly_stats['Total_Amount'].idxmin()
+                
+                detailed_analysis += f"  • Average Monthly Total: Rs.{avg_monthly_amount:,.2f}\n"
+                detailed_analysis += f"  • Highest Activity: {highest_month} (Rs.{monthly_stats.loc[highest_month, 'Total_Amount']:,.2f})\n"
+                detailed_analysis += f"  • Lowest Activity: {lowest_month} (Rs.{monthly_stats.loc[lowest_month, 'Total_Amount']:,.2f})\n"
+                
+            except Exception as e:
+                detailed_analysis += f"Error processing monthly data: {str(e)}\n"
+
+        # === PAYMENT MODE ANALYSIS ===
+        if 'Mode' in df.columns:
+            detailed_analysis += "\n\n💳 PAYMENT MODE BREAKDOWN:\n" + "="*50 + "\n"
+            
+            mode_stats = df.groupby('Mode').agg({
+                'Amount': ['count', 'sum', 'mean', 'std', 'min', 'max']
+            }).round(2)
+            
+            mode_stats.columns = ['Count', 'Total_Amount', 'Avg_Amount', 'Std_Amount', 'Min_Amount', 'Max_Amount']
+            mode_stats = mode_stats.sort_values('Total_Amount', ascending=False)
+            
+            detailed_analysis += f"Total Payment Modes: {len(mode_stats)}\n"
+            detailed_analysis += f"Most Used Mode: {mode_stats.index[0]} ({mode_stats.iloc[0]['Count']} transactions)\n"
+            detailed_analysis += f"Highest Value Mode: {mode_stats['Total_Amount'].idxmax()}\n\n"
+            
+            detailed_analysis += "💰 Payment Mode Statistics:\n"
+            for mode, stats in mode_stats.iterrows():
+                percentage = (stats['Count'] / total_transactions) * 100
+                amount_percentage = (stats['Total_Amount'] / total_amount) * 100 if total_amount > 0 else 0
+                detailed_analysis += f"\n  {mode}:\n"
+                detailed_analysis += f"    • Transactions: {stats['Count']} ({percentage:.1f}% of total)\n"
+                detailed_analysis += f"    • Total Amount: Rs.{stats['Total_Amount']:,.2f} ({amount_percentage:.1f}% of total)\n"
+                detailed_analysis += f"    • Average Amount: Rs.{stats['Avg_Amount']:,.2f}\n"
+                detailed_analysis += f"    • Amount Range: Rs.{stats['Min_Amount']:,.2f} to Rs.{stats['Max_Amount']:,.2f}\n"
+                detailed_analysis += f"    • Std Deviation: Rs.{stats['Std_Amount']:,.2f}\n"
+
+        # === CROSS-ANALYSIS ===
+        detailed_analysis += "\n\n🔄 CROSS-ANALYSIS:\n" + "="*50 + "\n"
+        
+        # Category vs Mode analysis
+        if 'Category' in df.columns and 'Mode' in df.columns:
+            detailed_analysis += "🏷️💳 Category vs Payment Mode:\n"
+            cross_analysis = df.groupby(['Category', 'Mode']).agg({
+                'Amount': ['count', 'sum', 'mean']
+            }).round(2)
+            
+            cross_analysis.columns = ['Count', 'Total_Amount', 'Avg_Amount']
+            
+            for category in df['Category'].unique():
+                if category in cross_analysis.index:
+                    cat_data = cross_analysis.loc[category]
+                    if isinstance(cat_data, pd.Series):
+                        cat_data = cat_data.to_frame().T
+                    if len(cat_data) > 0:
+                        detailed_analysis += f"\n  {category}:\n"
+                        for mode_idx, stats in cat_data.iterrows():
+                            mode_name = mode_idx if isinstance(mode_idx, str) else mode_idx
+                            detailed_analysis += f"    • {mode_name}: {stats['Count']} transactions, Total: Rs.{stats['Total_Amount']:,.2f}\n"
+
+        # === ANOMALY DETECTION RESULTS ===
+        detailed_analysis += "\n\n🚨 ANOMALY DETECTION RESULTS:\n" + "="*50 + "\n"
+        
+        total_anomalies = 0
         for key, value in results.items():
             if isinstance(value, dict):
-                if 'mean' in value:
-                    analysis_summary += f"\n{key.replace('_', ' ').title()}:\n"
-                    analysis_summary += f"  Mean: {value['mean']:.2f}\n"
-                    analysis_summary += f"  Std Dev: {value['std']:.2f}\n"
-                    analysis_summary += f"  Range: {value['min']:.2f} to {value['max']:.2f}\n"
-                    analysis_summary += f"  Median: {value['median']:.2f}\n"
-                    analysis_summary += f"  Count: {value['count']}\n"
-                elif 'total_categories' in value:
-                    analysis_summary += f"\n{key.replace('_', ' ').title()}:\n"
-                    analysis_summary += f"  Total Categories: {value['total_categories']}\n"
-                    analysis_summary += f"  Top Categories: {value['top_categories']}\n"
-                    if value['rare_categories']:
-                        analysis_summary += f"  Rare Categories: {value['rare_categories']}\n"
-                elif 'total_modes' in value:
-                    analysis_summary += f"\n{key.replace('_', ' ').title()}:\n"
-                    analysis_summary += f"  Total Payment Modes: {value['total_modes']}\n"
-                    analysis_summary += f"  Top Modes: {value['top_modes']}\n"
-                    if value['rare_modes']:
-                        analysis_summary += f"  Rare Modes: {value['rare_modes']}\n"
+                if key == 'financial_anomalies':
+                    detailed_analysis += f"\n{key.replace('_', ' ').title()}:\n"
+                    for anomaly_type, anomaly_data in value.items():
+                        if isinstance(anomaly_data, pd.DataFrame):
+                            anomaly_count = len(anomaly_data)
+                            total_anomalies += anomaly_count
+                            detailed_analysis += f"  • {anomaly_type.replace('_', ' ').title()}: {anomaly_count} anomalies\n"
+                            
+                            # Show sample anomalies
+                            if anomaly_count > 0:
+                                detailed_analysis += "    Sample anomalies:\n"
+                                for i, (idx, row) in enumerate(anomaly_data.head(3).iterrows()):
+                                    detailed_analysis += f"      Row {idx}: "
+                                    if 'Amount' in row:
+                                        detailed_analysis += f"Amount: Rs.{row['Amount']:,.2f}, "
+                                    if 'Category' in row:
+                                        detailed_analysis += f"Category: {row['Category']}, "
+                                    if 'Mode' in row:
+                                        detailed_analysis += f"Mode: {row['Mode']}"
+                                    detailed_analysis += "\n"
+                        
+                elif 'mean' in str(value):
+                    detailed_analysis += f"\n{key.replace('_', ' ').title()}:\n"
+                    if hasattr(value, 'items'):
+                        for stat_key, stat_value in value.items():
+                            detailed_analysis += f"  • {stat_key}: {stat_value}\n"
+                            
             elif isinstance(value, pd.DataFrame):
-                analysis_summary += f"\n{key.replace('_', ' ').title()}: {len(value)} anomalies detected\n"
+                anomaly_count = len(value)
+                total_anomalies += anomaly_count
+                detailed_analysis += f"\n{key.replace('_', ' ').title()}: {anomaly_count} anomalies detected\n"
+                
+                if anomaly_count > 0:
+                    detailed_analysis += "  Sample anomalies:\n"
+                    for i, (idx, row) in enumerate(value.head(3).iterrows()):
+                        detailed_analysis += f"    • Row {idx}: "
+                        if 'Amount' in row:
+                            detailed_analysis += f"Amount: Rs.{row['Amount']:,.2f}, "
+                        if 'Category' in row:
+                            detailed_analysis += f"Category: {row['Category']}, "
+                        if 'Mode' in row:
+                            detailed_analysis += f"Mode: {row['Mode']}"
+                        detailed_analysis += "\n"
 
-        return analysis_summary
+        # === SUMMARY INSIGHTS ===
+        detailed_analysis += "\n\n💡 KEY INSIGHTS:\n" + "="*50 + "\n"
+        
+        if 'Category' in df.columns:
+            top_category = df['Category'].value_counts().index[0]
+            detailed_analysis += f"• Most frequent category: {top_category}\n"
+            
+        if 'Mode' in df.columns:
+            top_mode = df['Mode'].value_counts().index[0]
+            detailed_analysis += f"• Most used payment mode: {top_mode}\n"
+            
+        if 'Amount' in df.columns:
+            avg_amount = df['Amount'].mean()
+            detailed_analysis += f"• Average transaction amount: Rs.{avg_amount:,.2f}\n"
+            
+        detailed_analysis += f"• Total anomalies detected: {total_anomalies}\n"
+
+        # Create spending over time plot (now only positive amounts)
+        df['Date'] = pd.to_datetime(df['Date'], format='%d-%b-%y', errors='coerce')
+        daily = df.set_index('Date').resample('D')['Amount'].sum().fillna(0)
+        
+        plt.figure(figsize=(12, 5))
+        sns.lineplot(data=daily)
+        plt.title('Daily Spending Over Time (Positive Amounts Only)')
+        plt.ylabel('Daily Spending Amount (Rs.)')
+        plt.xlabel('Date')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+
+        return detailed_analysis
 
     except Exception as e:
         return f"Error in financial analysis: {str(e)}"
+
+
 
 def finance_analysis(user_query: str) -> str:
     """
