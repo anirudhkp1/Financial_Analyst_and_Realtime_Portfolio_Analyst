@@ -38,7 +38,7 @@ db = SQLDatabase.from_uri("sqlite:///mydb.db")
 toolkit = SQLDatabaseToolkit(db=db, llm=llm)
 
 sql_agent = create_sql_agent(
-        llm=llm,
+        llm=model_client,
         toolkit=toolkit,
         verbose=True,
         agent_type="openai-functions",
