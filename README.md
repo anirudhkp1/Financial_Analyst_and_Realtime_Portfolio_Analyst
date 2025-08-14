@@ -108,8 +108,6 @@ The SQLAnomalyDetector class provides a full pipeline for detecting anomalies in
   
   -Round Number Bias: Highlights transactions with rounded amounts (e.g., ₹1000, ₹5000) that may be suspicious.
   
-  -Late-Night Activity: Detects transactions occurring between 11 PM and 5 AM.
-  
   -Rare Categories & Modes: Finds seldom-used transaction categories or payment methods.
   
   -Time-Based Patterns: Analyzes hour-of-day transaction distributions
