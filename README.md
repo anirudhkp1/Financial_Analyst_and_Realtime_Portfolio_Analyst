@@ -8,9 +8,6 @@ This project aims to provide insights into user spending patterns, answer user q
 - 🤖 OpenAI GPT-based assistant via AutoGen
 - 📊 Anomaly detection using:
   - Isolation Forest
-  - DBSCAN
-  - One-Class SVM
-  - etc
 - 🖼️ Mutli-Agent Architecture using SelectorGroupChat
 
 ## Agent Structure
