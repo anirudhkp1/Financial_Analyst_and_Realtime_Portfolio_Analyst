@@ -1,0 +1,223 @@
+import asyncio
+from datetime import datetime
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from pathlib import Path
+from io import StringIO
+import base64
+from io import BytesIO
+from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
+from autogen_ext.models.openai import OpenAIChatCompletionClient
+from autogen_ext.tools.mcp import McpWorkbench, StreamableHttpServerParams, StreamableHttpMcpToolAdapter, StdioServerParams, mcp_server_tools
+from autogen_agentchat.teams import SelectorGroupChat
+from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
+
+COMPANY_NAME = "AAPL"
+
+async def main():
+    model_client = OpenAIChatCompletionClient(
+        model="gpt-4o-mini",
+        api_key=api_key,
+        max_tokens=4000
+    )
+    server_params = StreamableHttpServerParams(
+        url=f"https://mcp.alphavantage.co/mcp?apikey={alphavantage_api_key}"
+    )
+    current_dir = str(Path.cwd())
+    filesystem_server_params = StdioServerParams(
+        command="npx.cmd", args=["-y", "@modelcontextprotocol/server-filesystem", current_dir]
+    )
+    try:
+        news_tool = await StreamableHttpMcpToolAdapter.from_server_params(
+            server_params, "NEWS_SENTIMENT"
+        )
+        overview_tool = await StreamableHttpMcpToolAdapter.from_server_params(
+            server_params, "COMPANY_OVERVIEW"
+        )
+        time_series_tool = await StreamableHttpMcpToolAdapter.from_server_params(
+            server_params, "TIME_SERIES_DAILY"
+        )
+        earnings_tool = await StreamableHttpMcpToolAdapter.from_server_params(
+            server_params, "EARNINGS"
+        )
+        filesystem_tools = await mcp_server_tools(filesystem_server_params)
+        # Find the write_file tool from the available tools
+        write_file_tool = next((tool for tool in filesystem_tools if tool.name == "write_file"), None)
+        # Data collector agent
+        data_collector = AssistantAgent(
+            name="data_collector",
+            model_client=model_client,
+            tools=[news_tool, time_series_tool, earnings_tool, overview_tool],
+            system_message=f"""
+You are a financial data collector for {COMPANY_NAME}. Collect data using your tools and format it into the exact structure below.
+
+**Required Tool Calls:**
+1. `TIME_SERIES_DAILY(symbol="{COMPANY_NAME}", outputsize="compact")`
+2. `NEWS_SENTIMENT(tickers="{COMPANY_NAME}", limit=3, sort="LATEST")`
+3. `EARNINGS(symbol="{COMPANY_NAME}")`
+4. `COMPANY_OVERVIEW(symbol="{COMPANY_NAME}")`
+
+**CRITICAL: For the time series data, you MUST also output the raw CSV data in this format:**
+```
+RAW_TIME_SERIES_DATA:
+Date,Open,High,Low,Close,Volume
+2024-01-01,150.00,155.00,149.00,154.00,50000000
+2024-01-02,154.00,157.00,153.00,156.00,45000000
+...
+```
+
+**Output Format:**
+```
+## CURRENT MARKET DATA
+- **Stock Price:** $XXX.XX (±X.XX, ±X.X%)
+- **Trading Volume:** X.X million
+- **52-Week Range:** $XXX.XX - $XXX.XX
+
+## LATEST EARNINGS
+- **Quarter:** [e.g., Q2 2024]
+- **Reported EPS:** $X.XX vs $X.XX estimate
+- **Reported Revenue:** $XX.X billion vs $XX.X billion estimate
+
+## RECENT NEWS (Last 14 Days)
+1. **[Headline 1]** - [Source] - [Sentiment]
+2. **[Headline 2]** - [Source] - [Sentiment]
+3. **[Headline 3]** - [Source] - [Sentiment]
+
+## KEY FINANCIAL METRICS
+- **Market Cap:** $X.XX trillion
+- **P/E Ratio (TTM):** XX.X
+- **EPS (TTM):** $X.XX
+
+RAW_TIME_SERIES_DATA:
+Date,Open,High,Low,Close,Volume
+[Include the actual daily data from TIME_SERIES_DAILY here]
+```
+
+Call your tools, extract the data, and format it exactly as shown above. MAKE SURE to include the raw time series data in CSV format.
+""",
+        )
+        report_writer = AssistantAgent(
+    name="report_writer",
+    model_client=model_client,
+    tools=[write_file_tool],
+    system_message=f"""
+You are a financial report writer. Create a structured report and save it as a JSON file.
+
+**Your Tasks:**
+1. Extract data from the provided financial data
+2. Structure it into JSON format
+3. Save it using write_file
+
+**File Operation:**
+Use `write_file(path="{COMPANY_NAME}_financial_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json", content=json_content)`
+
+**IMPORTANT: Create valid JSON without extra escaping. Use proper JSON structure.**
+
+**JSON Structure:**
+```json
+{{
+  "company": "{COMPANY_NAME}",
+  "report_date": "{datetime.now().strftime('%Y-%m-%d')}",
+  "report_time": "{datetime.now().strftime('%H:%M:%S')}",
+  "market_data": {{
+    "stock_price": "extracted_price",
+    "price_change": "extracted_change",
+    "trading_volume": "extracted_volume",
+    "52_week_range": {{
+      "low": "extracted_low",
+      "high": "extracted_high"
+    }}
+  }},
+  "earnings": {{
+    "quarter": "extracted_quarter",
+    "reported_eps": "extracted_eps",
+    "estimated_eps": "extracted_estimate",
+    "reported_revenue": "extracted_revenue",
+    "estimated_revenue": "extracted_estimate"
+  }},
+  "financial_metrics": {{
+    "market_cap": "extracted_market_cap",
+    "pe_ratio": "extracted_pe",
+    "eps_ttm": "extracted_eps_ttm"
+  }},
+  "news": [
+    {{
+      "headline": "headline_1",
+      "source": "source_1",
+      "sentiment": "sentiment_1"
+    }},
+    {{
+      "headline": "headline_2", 
+      "source": "source_2",
+      "sentiment": "sentiment_2"
+    }},
+    {{
+      "headline": "headline_3",
+      "source": "source_3", 
+      "sentiment": "sentiment_3"
+    }}
+  ],
+  "technical_analysis": {{
+    "chart_file": "{COMPANY_NAME}_stock_analysis.png",
+    "description": "Time series showing price movement and volume patterns"
+  }},
+  "metadata": {{
+    "generated_by": "AI Financial Analysis System",
+    "data_source": "Alpha Vantage API"
+  }}
+}}
+```
+
+Replace placeholders with actual extracted values. Ensure the JSON is properly formatted and valid."""
+)
+        print(f"Starting data collection for {COMPANY_NAME}...")
+        print("=" * 50)
+        
+        # Step 1: Run data collector
+        print("STEP 1: Collecting data...")
+        collected_data = ""
+        async for message in data_collector.run_stream(task=f"Collect financial data for {COMPANY_NAME}"):
+            # Handle different message types
+            if hasattr(message, 'content'):
+                content = str(message.content)  # Ensure it's a string
+                print(f"Data Collector: {content}")
+                collected_data += content + "\n"
+            elif isinstance(message, dict):
+                # Handle dict-type messages
+                content = str(message.get('content', ''))
+                if content:
+                    print(f"Data Collector: {content}")
+                    collected_data += content + "\n"
+        
+        print("\n" + "=" * 50)
+        print("STEP 2: Generating report...")
+        
+        # Step 2: Run report writer with collected data
+        report_task = f"Create a financial report using this collected data:\n\n{collected_data}"
+        
+        final_report = ""
+        async for message in report_writer.run_stream(task=report_task):
+            # Handle different message types
+            if hasattr(message, 'content'):
+                content = str(message.content)  # Ensure it's a string
+                print(f"Report Writer: {content}")
+                final_report += content + "\n"
+            elif isinstance(message, dict):
+                # Handle dict-type messages
+                content = str(message.get('content', ''))
+                if content:
+                    print(f"Report Writer: {content}")
+                    final_report += content + "\n"
+        
+        print("\n" + "=" * 50)
+        print("FINAL REPORT:")
+        print("=" * 50)
+        print(final_report)
+
+    except Exception as e:
+        print(f"\nError: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
