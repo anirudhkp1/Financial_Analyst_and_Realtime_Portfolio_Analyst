@@ -28,7 +28,7 @@ This project provides a comprehensive suite for financial analysis, split into t
   * **Data & Analysis:** Pandas, NumPy
   * **Database:** SQLite
   * **Visualization:** Plotly, Seaborn
-  * **Cloud & APIs:** Boto3 (AWS SDK for S3), Alpha Vantage
+  * **Cloud & APIs:** Boto3 (AWS SDK for S3), Alpha Vantage, FileSystem
   * **Environment:** `dotenv`
 
 -----
