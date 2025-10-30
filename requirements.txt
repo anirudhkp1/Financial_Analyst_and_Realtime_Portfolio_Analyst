@@ -1,16 +1,28 @@
+# Data Science & ML
 numpy==1.24.4
+scipy==1.11.4
+scikit-learn==1.4.2
 pandas==2.2.2
-scipy==1.13.0
-scikit-learn==1.5.0
-matplotlib==3.9.0
-seaborn==0.13.2
+openpyxl
 
-langchain
+# Plotting & Visualization
+matplotlib==3.8.4
+seaborn==0.13.2
+plotly>=6.1.1
+
+# AWS
+boto3
+
+# LangChain & AutoGen
+langchain<0.2.0
 langchain-openai
 langchain-community
 openai
-python-dotenv
-openpyxl
-
 autogen-agentchat
 autogen-ext[openai,azure]
+
+# Utilities
+python-dotenv
+
+#mcp
+mcp
