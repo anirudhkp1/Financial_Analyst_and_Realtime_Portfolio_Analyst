@@ -1,120 +1,83 @@
-# Autogen-based Multi-Agent Financial Advisor
+Financial Insights & Portfolio Analysis System
+This project provides a comprehensive suite for financial analysis, split into two main components:
 
-This project aims to provide insights into user spending patterns, answer user queries, and to help users better track their financial transactions. The program consists of 2 agents- a financial advisor and a data analyst. Simple user queries are answered directly by financial agent, whereas more complex queries which require data analysis are passed on to the data analyst agent for categorization and ML-based anomaly detection.
+A Personal Spending Analyzer that performs Exploratory Data Analysis (EDA) on a local SQL database of transactions, generates visualizations, and uploads them to AWS S3.
 
-## 🚀 Features
+A Real-Time Portfolio Analyst that uses AutoGen's Model Context Protocol (MCP) to fetch live market data from Alpha Vantage for a specific stock and generate a detailed report.
 
-- 🔗 SQL agent integration with LangChain
-- 🤖 OpenAI GPT-based assistant via AutoGen
-- 📊 Anomaly detection using:
-  - Isolation Forest
-- 🖼️ Mutli-Agent Architecture using SelectorGroupChat
+🚀 Core Features
+Personal Spending Analysis: Conducts deep EDA on transaction data from a SQLite database.
 
-## Agent Structure
+Real-Time Portfolio Analysis: Fetches live market data, news, earnings, and fundamentals using the Alpha Vantage API.
 
-🏦 **finance_agent – Senior Financial Advisor**
+Multi-Agent Architecture: Uses AutoGen agents for task orchestration, including a two-agent MCP workflow (data_collector -> report_writer).
 
-Role: Acts as the user-facing assistant responsible for interpreting financial queries and delivering actionable recommendations.
+Natural Language Database Query: Integrates a LangChain SQL Agent (query_db) to answer natural language questions about personal spending data.
 
-Responsibilities:
+Cloud Integration: Automatically uploads generated Plotly graphs (e.g., spending by category, daily trends) to an AWS S3 bucket.
 
--Query Evaluation: Determines whether a query is simple (e.g., "Show my last 10 transactions") or complex (e.g., "Analyze my spending trends").
+Modern AutoGen Tooling: Demonstrates the autogen_ext Model Context Protocol (MCP) to interact with external APIs (Alpha Vantage) and the local filesystem.
 
--Simple Queries: Directly uses the query_db tool to retrieve and respond to basic data requests.
+Automated Reporting: Generates structured JSON reports for both the personal spending analysis and the real-time portfolio data.
 
--Complex Queries: Coordinates with data_analyst by:
+🔧 Technical Stack
+Core: Python 3.10+
 
--Using query_db to understand the data
+AI & Agents: AutoGen (autogen-agentchat, autogen_ext), LangChain (for SQL Agent), OpenAI (gpt-4o-mini)
 
--Delegating statistical analysis
+Data & Analysis: Pandas, NumPy
 
--Interpreting real statistical results for actionable financial advice
+Database: SQLite
 
-Outputs: Financial insights grounded in actual numbers (e.g., "Your food expenses make up 48% of your total spend").
+Visualization: Plotly, Seaborn
 
-📊 **data_analyst – Statistical Analyst for Financial Data**
+Cloud & APIs: Boto3 (AWS SDK for S3), Alpha Vantage
 
-Role: Performs rigorous data analysis to support complex queries with concrete statistical findings.
+Environment: dotenv
 
-Responsibilities:
+📁 Project Modules
+This project consists of two primary, independent scripts:
 
--Uses analyze_financial_data to compute detailed statistics
+1. financial_analyst.py (Personal Spending Analyzer)
+This script connects to a local SQLite database (sept_dataset.db) to perform a detailed analysis of personal spending habits.
 
--Provides exact values like:
+Key Components:
 
-  -Means, standard deviations, and ranges of transactions
+SQLAnomalyDetector: A class that loads transaction data and identifies anomalies, specifically focusing on high-frequency transaction days.
 
--Category and payment method breakdowns
+analyze_financial_data(): The main engine that:
 
--Anomaly counts and types (e.g., IQR, multidimensional)
+Loads the entire transaction dataset.
 
--Returns findings to the finance_agent for interpretation and user-facing recommendation
+Calculates overall statistics (total spend, date range, etc.).
 
-## SQL Agent 
+Performs analysis by category, month, payment mode, and day of the week.
 
-The SQL Agent is a LangChain-powered agent that allows natural language interaction with a SQL database.
+Generates plotly graphs for each analysis (e.g., scatter plot, bar charts, line chart).
 
-Purpose:
-To translate user queries into executable SQL statements and return results in a structured, human-readable format.
+Uploads all generated graphs as PNGs to a specified AWS S3 bucket using boto3.
 
-Key Capabilities:
+Runs the SQLAnomalyDetector to find unusual activity.
 
--Understands user intent via natural language
+query_db(): A LangChain-powered SQL agent that can answer natural language questions about the database (e.S., "show me my last 10 transactions").
 
--Uses LangChain’s SQLDatabaseToolkit and create_sql_agent for query execution
+Main Execution: The script runs the analyze_financial_data function directly, saving a complete JSON report of the findings (including S3 keys for the graphs) to a local file.
 
--Works seamlessly with AutoGen agents (e.g., finance_agent) to retrieve data from a SQLite database
+2. portfolio_analyst.py (Real-Time Portfolio Analyst)
+This script uses AutoGen's modern MCP-based agents to fetch and report on live financial data for a target company (e.g., MSFT).
 
--Supports flexible, conversational access to structured financial data (e.g., transactions, balances, categories)
+Key Components:
 
--Example Queries It Can Handle:
+AutoGen MCP: Uses StreamableHttpMcpToolAdapter to connect to the Alpha Vantage API and StdioServerParams to connect to a local filesystem server.
 
-  -"List all transactions above ₹5000"
+data_collector (Agent): This agent is responsible for calling multiple Alpha Vantage tools to get:
 
-  -"Show spending by category in June"
-  
-  -"Get the average amount spent on travel"
+Daily time series data
 
-## Data Analysis- Categorization and Anomaly Detection using SQLAnomalyDetector class
+Latest news & sentiment
 
-📉 SQLAnomalyDetector – Financial Anomaly Detection Engine
-The SQLAnomalyDetector class provides a full pipeline for detecting anomalies in financial transaction data loaded from a SQL database.
+Quarterly earnings reports
 
-**🔧 Core Responsibilities**
--Load & Preprocess Data:
+Company overview and key metrics
 
-  -Connects to a SQLite database and executes SQL queries.
-  
-  -Combines separate Date and Time columns into a single DateTime field with robust parsing.
-  
-  -Provides type introspection and handles missing or malformed data gracefully.
-
--Outlier Detection Methods:
-
-  -Z-Score: Identifies extreme values based on standard deviations.
-  
-  -IQR (Interquartile Range): Flags values significantly outside the typical range.
-  
-  -Modified Z-Score: Robust detection using median and MAD (Median Absolute Deviation).
-  
-  -Isolation Forest: Detects multi-dimensional outliers using scikit-learn’s model.
-
--🧠 Domain-Specific Anomaly Checks
-  -Large Cash Withdrawals/Deposits: Detects significant inflow or outflow of funds using IQR.
-  
-  -Unusual Transaction Amounts: Flags spikes or dips in transaction values.
-  
-  -High-Frequency Days: Identifies days with abnormally high numbers of transactions.
-  
-  -Round Number Bias: Highlights transactions with rounded amounts (e.g., ₹1000, ₹5000) that may be suspicious.
-  
-  -Rare Categories & Modes: Finds seldom-used transaction categories or payment methods.
-  
-  -Time-Based Patterns: Analyzes hour-of-day transaction distributions
-
-## Future Work
-
-- ML-based prediction algorithm to predict user spending and create budgets
-- Improve efficiency and output of final summary from finance agent
-
-
+report_writer (Agent): This agent receives the formatted text and raw data from the data_collector. Its sole job is to parse this information into a structured JSON format and use the filesystem write_file tool to save the final report to the local disk.
