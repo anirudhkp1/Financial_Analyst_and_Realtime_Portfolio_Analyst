@@ -160,7 +160,5 @@ This will:
 
 ## 🔮 Future Work
 
-  * **Unify Agents:** Combine both scripts into a single application where a "master" agent can delegate tasks to either the spending analyst or the portfolio analyst.
-  * **Re-introduce Advanced ML:** Integrate more robust anomaly detection models (like Isolation Forest, Z-Score) that were planned in the original project.
-  * **Prediction:** Implement ML-based forecasting to predict user spending and help create budgets.
-  * **Web Interface:** Build a simple Streamlit or Gradio front-end to interact with the agents and view the reports and graphs.
+  * **Deployment:** Currently working on deployment of the application.
+  * **Stock Analysis using ML:** Create a time-series prediction model to analyze stock data collected from Alphavantage, to provide recommendations to user.
